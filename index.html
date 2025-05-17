@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Truth Seekers - CTRL+P</title>
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/firebase@9.22.0/firebase-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/firebase@9.22.0/firebase-database.js"></script>
   <style>
     body {
       margin: 0;
@@ -187,8 +189,15 @@
 </head>
 <body>
 
+  <!-- Loading Screen -->
+  <div id="loadingScreen" class="screen active">
+    <h2>Loading...</h2>
+    <div class="loading-spinner"></div>
+    <p>Please wait while we set up the game.</p>
+  </div>
+
   <!-- Start Screen -->
-  <div id="startScreen" class="screen active">
+  <div id="startScreen" class="screen">
     <img src="Truth_seekers_logo.png" alt="Truth Seekers Logo" class="logo-img">
     <h1>CTRL+P</h1>
     <p>Ontmasker de Fakemaker!</p>
@@ -304,6 +313,21 @@
   </div>
 
   <script>
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDXHJZ1ZgXlwWQJ1mI_8RNJxFV0mfZaqco",
+      authDomain: "truth-seekers-game.firebaseapp.com",
+      databaseURL: "https://truth-seekers-game-default-rtdb.firebaseio.com",
+      projectId: "truth-seekers-game",
+      storageBucket: "truth-seekers-game.appspot.com",
+      messagingSenderId: "1098240233689",
+      appId: "1:1098240233689:web:9e69eb89479d69c3721c7d"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
     // Game state
     const gameState = {
       gameCode: '',
@@ -342,6 +366,9 @@
         }
         gameState.questions = await response.json();
         shuffleQuestions();
+        
+        // Show start screen
+        showScreen('startScreen');
       } catch (error) {
         console.error('Error loading questions:', error);
         alert('Failed to load questions. Please refresh the page.');
@@ -362,8 +389,8 @@
       document.getElementById('accuseBtn').addEventListener('click', accuseFakemaker);
       document.getElementById('newGameBtn').addEventListener('click', resetGame);
 
-      // Check for game data in URL
-      checkForGameDataInURL();
+      // Check for game code in URL
+      checkForGameCodeInURL();
     });
 
     // Show a specific screen
@@ -410,8 +437,34 @@
       // Update player list
       updatePlayerList();
       
-      // Save game state to localStorage
-      saveGameState();
+      // Create game in Firebase
+      const gameRef = database.ref('games/' + gameState.gameCode);
+      gameRef.set({
+        host: hostName,
+        players: gameState.players,
+        gamePhase: 'lobby',
+        questions: gameState.questions,
+        currentPlayerIndex: 0,
+        currentQuestionIndex: 0,
+        fakemakerName: '',
+        lastUpdate: firebase.database.ServerValue.TIMESTAMP
+      });
+      
+      // Listen for player updates
+      gameRef.child('players').on('value', (snapshot) => {
+        if (snapshot.exists()) {
+          gameState.players = snapshot.val();
+          updatePlayerList();
+        }
+      });
+      
+      // Listen for game phase updates
+      gameRef.child('gamePhase').on('value', (snapshot) => {
+        if (snapshot.exists()) {
+          const newPhase = snapshot.val();
+          handleGamePhaseChange(newPhase);
+        }
+      });
       
       showScreen('hostGameScreen');
     }
@@ -425,8 +478,8 @@
       const currentUrl = window.location.href.split('?')[0];
       const gameUrl = `${currentUrl}?code=${gameState.gameCode}`;
       
-      // Use a simple ASCII QR code since we can't use external libraries
-      qrCodeContainer.textContent = 'Scan to join: ' + gameUrl;
+      // Create a simple text representation
+      qrCodeContainer.textContent = 'Share this link to join: ' + gameUrl;
       
       // Add copy link button
       const copyButton = document.createElement('button');
@@ -447,51 +500,115 @@
         return;
       }
       
-      // Check if game exists in localStorage
-      const savedGame = localStorage.getItem(`truthseekers_game_${gameCode}`);
-      if (!savedGame) {
-        showError('joinErrorMessage', 'Game not found. Please check the code and try again.');
-        return;
-      }
+      // Check if game exists in Firebase
+      const gameRef = database.ref('games/' + gameCode);
+      gameRef.once('value', (snapshot) => {
+        if (!snapshot.exists()) {
+          showError('joinErrorMessage', 'Game not found. Please check the code and try again.');
+          return;
+        }
+        
+        const gameData = snapshot.val();
+        
+        // Check if name is already taken
+        if (gameData.players && gameData.players.some(p => p.name === playerName)) {
+          showError('joinErrorMessage', 'Name already taken. Please choose another name.');
+          return;
+        }
+        
+        // Add player to game
+        gameState.gameCode = gameCode;
+        gameState.playerName = playerName;
+        gameState.isHost = false;
+        
+        // Get current players
+        let players = gameData.players || [];
+        
+        // Add new player
+        players.push({
+          name: playerName,
+          role: '',
+          isHost: false
+        });
+        
+        // Update Firebase
+        gameRef.child('players').set(players);
+        
+        // Set up listeners
+        setupGameListeners(gameCode);
+        
+        // Show lobby screen
+        showScreen('lobbyScreen');
+      });
+    }
+
+    // Set up game listeners for a player
+    function setupGameListeners(gameCode) {
+      const gameRef = database.ref('games/' + gameCode);
       
-      // Load game state
-      const parsedGame = JSON.parse(savedGame);
-      
-      // Check if name is already taken
-      if (parsedGame.players.some(p => p.name === playerName)) {
-        showError('joinErrorMessage', 'Name already taken. Please choose another name.');
-        return;
-      }
-      
-      // Add player to game
-      parsedGame.players.push({
-        name: playerName,
-        role: '',
-        isHost: false
+      // Listen for player updates
+      gameRef.child('players').on('value', (snapshot) => {
+        if (snapshot.exists()) {
+          gameState.players = snapshot.val();
+          updateLobbyPlayerList();
+        }
       });
       
-      // Save updated game state
-      localStorage.setItem(`truthseekers_game_${gameCode}`, JSON.stringify(parsedGame));
+      // Listen for game phase updates
+      gameRef.child('gamePhase').on('value', (snapshot) => {
+        if (snapshot.exists()) {
+          const newPhase = snapshot.val();
+          handleGamePhaseChange(newPhase);
+        }
+      });
       
-      // Update local game state
-      gameState.gameCode = gameCode;
-      gameState.playerName = playerName;
-      gameState.isHost = false;
-      gameState.players = parsedGame.players;
-      gameState.questions = parsedGame.questions;
+      // Listen for current player updates
+      gameRef.child('currentPlayerIndex').on('value', (snapshot) => {
+        if (snapshot.exists() && gameState.gamePhase === 'playing') {
+          gameState.currentPlayerIndex = snapshot.val();
+          updateTurnDisplay();
+        }
+      });
       
-      // Save player info to localStorage
-      localStorage.setItem(`truthseekers_player_${gameCode}_${playerName}`, JSON.stringify({
-        name: playerName,
-        gameCode: gameCode
-      }));
+      // Listen for current question updates
+      gameRef.child('currentQuestionIndex').on('value', (snapshot) => {
+        if (snapshot.exists() && gameState.gamePhase === 'playing') {
+          gameState.currentQuestionIndex = snapshot.val();
+        }
+      });
       
-      // Show lobby screen
-      updateLobbyPlayerList();
-      showScreen('lobbyScreen');
+      // Listen for questions
+      gameRef.child('questions').once('value', (snapshot) => {
+        if (snapshot.exists()) {
+          gameState.questions = snapshot.val();
+        }
+      });
+    }
+
+    // Handle game phase changes
+    function handleGamePhaseChange(newPhase) {
+      gameState.gamePhase = newPhase;
       
-      // Start polling for game updates
-      startGamePolling();
+      switch (newPhase) {
+        case 'lobby':
+          showScreen('lobbyScreen');
+          break;
+        case 'roleSelection':
+          showScreen('roleCodeScreen');
+          break;
+        case 'playing':
+          updateTurnDisplay();
+          break;
+        case 'gameOver':
+          // Get game over reason
+          database.ref('games/' + gameState.gameCode + '/gameOverReason').once('value', (snapshot) => {
+            if (snapshot.exists()) {
+              document.getElementById('gameOverMessage').textContent = snapshot.val();
+              showScreen('gameOverScreen');
+            }
+          });
+          break;
+      }
     }
 
     // Show error message
@@ -554,17 +671,12 @@
       });
     }
 
-    // Save game state to localStorage
-    function saveGameState() {
-      localStorage.setItem(`truthseekers_game_${gameState.gameCode}`, JSON.stringify(gameState));
-    }
-
     // Start game (host only)
     function startGame() {
       if (!gameState.isHost) return;
       
-      gameState.gamePhase = 'roleSelection';
-      saveGameState();
+      // Update game phase in Firebase
+      database.ref('games/' + gameState.gameCode + '/gamePhase').set('roleSelection');
       
       showScreen('roleCodeScreen');
     }
@@ -593,17 +705,14 @@
       if (playerIndex !== -1) {
         gameState.players[playerIndex].role = roleEntry.role;
         
+        // Update Firebase
+        database.ref('games/' + gameState.gameCode + '/players/' + playerIndex + '/role').set(roleEntry.role);
+        
         // If this is the Fakemaker, record their name
         if (roleEntry.role === 'Fakemaker') {
-          gameState.fakemakerName = gameState.playerName;
+          database.ref('games/' + gameState.gameCode + '/fakemakerName').set(gameState.playerName);
         }
       }
-      
-      // Save game state
-      saveGameState();
-      
-      // Save player role to localStorage
-      localStorage.setItem(`truthseekers_player_${gameState.gameCode}_${gameState.playerName}_role`, roleEntry.role);
       
       // Display role
       document.getElementById('playerRoleDisplay').textContent = roleEntry.role;
@@ -622,29 +731,34 @@
       if (!gameState.isHost) return;
       
       // Check if all players have roles
-      const allRolesAssigned = gameState.players.every(player => player.role !== '');
-      
-      if (allRolesAssigned) {
-        document.getElementById('startGameAfterRolesBtn').classList.remove('hidden');
-      }
+      database.ref('games/' + gameState.gameCode + '/players').once('value', (snapshot) => {
+        if (snapshot.exists()) {
+          const players = snapshot.val();
+          const allRolesAssigned = players.every(player => player.role !== '');
+          
+          if (allRolesAssigned) {
+            document.getElementById('startGameAfterRolesBtn').classList.remove('hidden');
+          }
+        }
+      });
     }
 
     // Start game after roles assigned (host only)
     function startGameAfterRoles() {
       if (!gameState.isHost) return;
       
-      gameState.gamePhase = 'playing';
-      gameState.gameStarted = true;
-      gameState.currentPlayerIndex = 0;
-      gameState.currentQuestionIndex = 0;
-      
-      saveGameState();
+      // Update game phase in Firebase
+      database.ref('games/' + gameState.gameCode).update({
+        gamePhase: 'playing',
+        currentPlayerIndex: 0,
+        currentQuestionIndex: 0
+      });
       
       startTurn();
     }
 
-    // Start turn
-    function startTurn() {
+    // Update turn display
+    function updateTurnDisplay() {
       const currentPlayer = gameState.players[gameState.currentPlayerIndex];
       
       // Update current player display
@@ -673,6 +787,11 @@
       }
       
       showScreen('gameScreen');
+    }
+
+    // Start turn
+    function startTurn() {
+      updateTurnDisplay();
     }
 
     // Show question
@@ -704,26 +823,28 @@
       document.getElementById('resultMessage').textContent = resultMessage;
       showScreen('resultScreen');
       
-      // Save result to game state
-      gameState.lastResult = {
+      // Save result to Firebase
+      database.ref('games/' + gameState.gameCode + '/lastResult').set({
         player: gameState.playerName,
         correct: isCorrect,
         message: resultMessage
-      };
-      
-      saveGameState();
+      });
     }
 
     // Next turn
     function nextTurn() {
       if (gameState.isHost) {
-        gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-        gameState.currentQuestionIndex = (gameState.currentQuestionIndex + 1) % gameState.questions.length;
+        const nextPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+        const nextQuestionIndex = (gameState.currentQuestionIndex + 1) % gameState.questions.length;
         
-        saveGameState();
+        // Update Firebase
+        database.ref('games/' + gameState.gameCode).update({
+          currentPlayerIndex: nextPlayerIndex,
+          currentQuestionIndex: nextQuestionIndex
+        });
       }
       
-      startTurn();
+      // The turn display will be updated by the Firebase listener
     }
 
     // Accuse someone of being the Fakemaker
@@ -734,36 +855,38 @@
         return;
       }
       
-      const isCorrect = accusedName.trim() === gameState.fakemakerName;
-      
-      if (isCorrect) {
-        gameState.gamePhase = 'gameOver';
-        gameState.gameOverReason = `The Fakemaker (${gameState.fakemakerName}) has been unmasked! The Factcheckers win!`;
-      } else {
-        gameState.gamePhase = 'playing';
-        gameState.accusationResult = `${accusedName} is not the Fakemaker. The game continues.`;
-      }
-      
-      saveGameState();
-      
-      if (isCorrect) {
-        endGame();
-      } else {
-        alert(gameState.accusationResult);
-        nextTurn();
-      }
-    }
-
-    // End game
-    function endGame() {
-      document.getElementById('gameOverMessage').textContent = gameState.gameOverReason;
-      showScreen('gameOverScreen');
+      // Get the actual Fakemaker name
+      database.ref('games/' + gameState.gameCode + '/fakemakerName').once('value', (snapshot) => {
+        if (snapshot.exists()) {
+          const fakemakerName = snapshot.val();
+          const isCorrect = accusedName.trim() === fakemakerName;
+          
+          if (isCorrect) {
+            // End game
+            const gameOverReason = `The Fakemaker (${fakemakerName}) has been unmasked! The Factcheckers win!`;
+            
+            database.ref('games/' + gameState.gameCode).update({
+              gamePhase: 'gameOver',
+              gameOverReason: gameOverReason
+            });
+          } else {
+            // Continue game
+            const accusationResult = `${accusedName} is not the Fakemaker. The game continues.`;
+            alert(accusationResult);
+            
+            // Next turn
+            nextTurn();
+          }
+        }
+      });
     }
 
     // Reset game
     function resetGame() {
-      // Clear game state
-      localStorage.removeItem(`truthseekers_game_${gameState.gameCode}`);
+      // Remove game from Firebase
+      if (gameState.isHost) {
+        database.ref('games/' + gameState.gameCode).remove();
+      }
       
       // Reset local game state
       gameState.gameCode = '';
@@ -790,8 +913,8 @@
       }
     }
 
-    // Check for game data in URL
-    function checkForGameDataInURL() {
+    // Check for game code in URL
+    function checkForGameCodeInURL() {
       const urlParams = new URLSearchParams(window.location.search);
       const gameCode = urlParams.get('code');
       
@@ -799,56 +922,6 @@
         document.getElementById('gameCodeInput').value = gameCode;
         showScreen('joinGameScreen');
       }
-    }
-
-    // Start polling for game updates
-    function startGamePolling() {
-      // Poll every 2 seconds
-      const pollInterval = setInterval(() => {
-        const savedGame = localStorage.getItem(`truthseekers_game_${gameState.gameCode}`);
-        
-        if (!savedGame) {
-          // Game was deleted
-          clearInterval(pollInterval);
-          alert('The game has ended.');
-          resetGame();
-          return;
-        }
-        
-        const parsedGame = JSON.parse(savedGame);
-        
-        // Update player list
-        gameState.players = parsedGame.players;
-        updateLobbyPlayerList();
-        
-        // Check game phase changes
-        if (parsedGame.gamePhase !== gameState.gamePhase) {
-          gameState.gamePhase = parsedGame.gamePhase;
-          
-          if (gameState.gamePhase === 'roleSelection') {
-            showScreen('roleCodeScreen');
-          } else if (gameState.gamePhase === 'playing') {
-            gameState.currentPlayerIndex = parsedGame.currentPlayerIndex;
-            gameState.currentQuestionIndex = parsedGame.currentQuestionIndex;
-            gameState.gameStarted = true;
-            startTurn();
-          } else if (gameState.gamePhase === 'gameOver') {
-            gameState.gameOverReason = parsedGame.gameOverReason;
-            endGame();
-          }
-        }
-        
-        // Check turn changes
-        if (gameState.gamePhase === 'playing' && 
-            (parsedGame.currentPlayerIndex !== gameState.currentPlayerIndex || 
-             parsedGame.currentQuestionIndex !== gameState.currentQuestionIndex)) {
-          
-          gameState.currentPlayerIndex = parsedGame.currentPlayerIndex;
-          gameState.currentQuestionIndex = parsedGame.currentQuestionIndex;
-          startTurn();
-        }
-        
-      }, 2000);
     }
 
     // Helper function to copy text to clipboard

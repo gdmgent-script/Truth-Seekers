@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Truth Seekers - CTRL+P</title>
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/@skyway-sdk/room@1.0.0/dist/skyway_room-1.0.0.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -29,24 +27,18 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      transition: opacity 1s ease;
+      transition: opacity 0.5s ease;
       text-align: center;
       padding: 20px;
       box-sizing: border-box;
-    }
-
-    #startScreen, #createGameScreen, #joinScreen, #hostScreen, #lobbyScreen, #roleCodeScreen, 
-    #waitingForPlayersScreen, #gameStartedScreen, #turnScreen, #waitingForTurnScreen, 
-    #questionScreen, #resultScreen, #gameOverScreen, #loadingScreen {
-      z-index: 1;
       opacity: 0;
       pointer-events: none;
     }
 
-    #loadingScreen {
-      z-index: 10;
+    .active {
       opacity: 1;
       pointer-events: auto;
+      z-index: 10;
     }
 
     .logo-img {
@@ -117,13 +109,6 @@
       border-radius: 10px;
     }
 
-    .peer-id {
-      font-size: 0.8rem;
-      margin-bottom: 15px;
-      word-break: break-all;
-      max-width: 80%;
-    }
-
     .loading-spinner {
       border: 5px solid rgba(255,255,255,0.3);
       border-radius: 50%;
@@ -145,158 +130,739 @@
       margin-top: 5px;
     }
 
-    .qr-code {
-      margin: 15px 0;
+    .player-list {
+      margin: 20px 0;
+      width: 80%;
+      max-width: 300px;
+    }
+
+    .player-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      margin-bottom: 8px;
+      background-color: rgba(255,255,255,0.2);
+      border-radius: 10px;
+    }
+
+    .player-name {
+      font-weight: bold;
+    }
+
+    .player-role {
+      font-size: 0.8em;
+      opacity: 0.8;
+    }
+
+    .error-message {
+      color: #ff7675;
+      background-color: rgba(255, 255, 255, 0.2);
+      padding: 10px;
+      border-radius: 10px;
+      margin: 10px 0;
+      max-width: 80%;
+    }
+
+    .success-message {
+      color: #55efc4;
+      background-color: rgba(255, 255, 255, 0.2);
+      padding: 10px;
+      border-radius: 10px;
+      margin: 10px 0;
+      max-width: 80%;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    #qrCode {
       background: white;
       padding: 10px;
       border-radius: 5px;
+      margin: 15px 0;
     }
   </style>
 </head>
 <body>
 
-  <!-- Loading Screen -->
-  <div id="loadingScreen" class="screen">
-    <h2>Connecting...</h2>
-    <div class="loading-spinner"></div>
-    <p>Please wait while we set up your connection.</p>
-  </div>
-
   <!-- Start Screen -->
-  <div id="startScreen" class="screen">
+  <div id="startScreen" class="screen active">
     <img src="Truth_seekers_logo.png" alt="Truth Seekers Logo" class="logo-img">
     <h1>CTRL+P</h1>
     <p>Ontmasker de Fakemaker!</p>
-    <p>Your ID: <span id="peerId" class="peer-id">Connecting...</span></p>
-    <button id="createGameBtn">Host Game</button>
+    <button id="hostGameBtn">Host Game</button>
     <button id="joinGameBtn">Join Game</button>
   </div>
 
-  <!-- Create Game Screen -->
-  <div id="createGameScreen" class="screen">
+  <!-- Host Setup Screen -->
+  <div id="hostSetupScreen" class="screen">
     <h2>Create a Game</h2>
-    <p>Enter your name to host a new game.</p>
-    <input type="text" id="hostName" placeholder="Your Name">
-    <button id="hostStartBtn">Create Game</button>
+    <p>Enter your name to host a new game</p>
+    <input type="text" id="hostNameInput" placeholder="Your Name">
+    <button id="createGameBtn">Create Game</button>
     <button onclick="showScreen('startScreen')">Back</button>
   </div>
 
-  <!-- Join Screen -->
-  <div id="joinScreen" class="screen">
-    <h2>Join a Game</h2>
-    <p>Enter your name, the room code, and the host's ID.</p>
-    <input type="text" id="joinName" placeholder="Your Name">
-    <input type="text" id="joinRoomCode" placeholder="Room Code (e.g., ABC123)">
-    <input type="text" id="joinHostId" placeholder="Host ID">
-    <button id="joinStartBtn">Join Game</button>
-    <button onclick="showScreen('startScreen')">Back</button>
-  </div>
-
-  <!-- Host Screen -->
-  <div id="hostScreen" class="screen">
+  <!-- Host Game Screen -->
+  <div id="hostGameScreen" class="screen">
     <h2>Game Created!</h2>
-    <p>Share this room code with other players:</p>
-    <div class="game-code" id="roomCodeDisplay">ABCDEF</div>
-    <button class="copy-button" onclick="copyToClipboard(document.getElementById('roomCodeDisplay').textContent)">Copy Code</button>
+    <p>Share this game code with other players:</p>
+    <div class="game-code" id="gameCodeDisplay">ABCDEF</div>
+    <button class="copy-button" onclick="copyToClipboard(document.getElementById('gameCodeDisplay').textContent)">Copy Code</button>
     
-    <p>Also share your ID with players who want to join:</p>
-    <p id="hostPeerId" class="peer-id">Your ID will appear here</p>
-    <button class="copy-button" onclick="copyToClipboard(document.getElementById('hostPeerId').textContent)">Copy ID</button>
+    <div id="qrCode"></div>
     
-    <div id="qrCodeContainer" class="qr-code"></div>
+    <h3>Players:</h3>
+    <div id="hostPlayerList" class="player-list">
+      <!-- Players will be listed here -->
+    </div>
     
-    <p>Waiting for players to join...</p>
-    <button id="startGameBtn" disabled>Start Game</button>
+    <button id="startGameBtn">Start Game</button>
+  </div>
+
+  <!-- Join Game Screen -->
+  <div id="joinGameScreen" class="screen">
+    <h2>Join a Game</h2>
+    <p>Enter your name and the game code</p>
+    <input type="text" id="playerNameInput" placeholder="Your Name">
+    <input type="text" id="gameCodeInput" placeholder="Game Code (e.g., ABC123)">
+    <div id="joinErrorMessage" class="error-message hidden"></div>
+    <button id="joinGameBtn">Join Game</button>
+    <button onclick="showScreen('startScreen')">Back</button>
   </div>
 
   <!-- Lobby Screen -->
   <div id="lobbyScreen" class="screen">
     <h2>Game Lobby</h2>
-    <p id="playerCount">Players: 0/6</p>
-    <ul id="playerList">
-      <!-- Player list will be populated here -->
-    </ul>
     <p>Waiting for the host to start the game...</p>
+    <div id="lobbyPlayerList" class="player-list">
+      <!-- Players will be listed here -->
+    </div>
   </div>
 
   <!-- Role Code Screen -->
   <div id="roleCodeScreen" class="screen">
     <h2>Enter Your Role Code</h2>
-    <p>Look at your physical role card and enter the code.</p>
+    <p>Look at your physical role card and enter the code</p>
     <input type="text" id="roleCodeInput" placeholder="Role Code (e.g., 1288)">
-    <button id="submitRoleCodeBtn">Submit</button>
+    <div id="roleErrorMessage" class="error-message hidden"></div>
+    <button id="submitRoleBtn">Submit</button>
   </div>
 
-  <!-- Waiting for Players Screen -->
-  <div id="waitingForPlayersScreen" class="screen">
+  <!-- Role Confirmation Screen -->
+  <div id="roleConfirmationScreen" class="screen">
     <h2>Role Confirmed</h2>
-    <p>Your role: <strong id="myRoleDisplay"></strong></p>
-    <p>Waiting for all players to enter their role codes...</p>
-    <button id="startGameAfterRolesBtn" style="display: none;">Start Game</button>
+    <p>Your role is: <strong id="playerRoleDisplay"></strong></p>
+    <p>Waiting for all players to enter their roles...</p>
+    <button id="startGameAfterRolesBtn" class="hidden">Start Game</button>
   </div>
 
-  <!-- Game Started Screen -->
-  <div id="gameStartedScreen" class="screen">
-    <h2>Game Started!</h2>
-    <p>The first player is: <strong id="firstPlayerName"></strong></p>
-    <p>Pass the device to the current player when it's your turn.</p>
-  </div>
-
-  <!-- Turn Screen -->
-  <div id="turnScreen" class="screen">
-    <h2 id="currentPlayerTurn">Your Turn</h2>
-    <div id="visibleAnswer" style="display: none;">
-        <p>Rol: <strong id="currentPlayerRoleText"></strong></p>
-        <p>Antwoord op vraag <strong id="currentQuestionNumberText"></strong>: <strong id="currentQuestionAnswerText"></strong></p>
-        <p style="font-size:0.8em;">(Deze informatie is alleen voor jou!)</p>
-    </div>  
-    <button id="showQuestionBtn">Toon Vraag</button>
-  </div>
-
-  <!-- Waiting for Turn Screen -->
-  <div id="waitingForTurnScreen" class="screen">
-    <h2>Waiting for Turn</h2>
-    <p>Current player: <strong id="currentPlayerName"></strong></p>
-    <p>Please wait for your turn...</p>
+  <!-- Game Screen -->
+  <div id="gameScreen" class="screen">
+    <h2>Game in Progress</h2>
+    <p>Current player: <strong id="currentPlayerDisplay"></strong></p>
+    
+    <div id="yourTurnInfo" class="hidden">
+      <h3>It's Your Turn!</h3>
+      <div id="roleInfo" class="hidden">
+        <p>Your role: <strong id="roleName"></strong></p>
+        <p id="answerInfo" class="hidden">The answer is: <strong id="correctAnswer"></strong></p>
+      </div>
+      <button id="showQuestionBtn">Show Question</button>
+    </div>
+    
+    <div id="waitingForTurn" class="hidden">
+      <p>Please wait for your turn...</p>
+    </div>
   </div>
 
   <!-- Question Screen -->
   <div id="questionScreen" class="screen">
-    <h3 id="questionNumberDisplay">Vraag X</h3>
-    <p id="questionContentDisplay">Dit is de vraag...</p>
-    <!-- Video / External Action elements will be added here if needed -->
+    <h3 id="questionNumber">Question X</h3>
+    <p id="questionContent">This is the question...</p>
     <div id="answerButtons">
-        <button onclick="submitAnswer(true)">Waar</button>
-        <button onclick="submitAnswer(false)">Fout</button>
+      <button id="trueBtn">Waar</button>
+      <button id="falseBtn">Fout</button>
     </div>
   </div>
 
   <!-- Result Screen -->
   <div id="resultScreen" class="screen">
-    <h2 id="resultTitle"></h2>
-    <p id="resultFeedback"></p>
-    <p id="fakemakerStatus"></p>
-    <button id="nextTurnBtn">Volgende Speler</button>
-    <button id="attemptUnmaskBtn">Ontmasker Fakemaker?</button> 
+    <h2 id="resultTitle">Result</h2>
+    <p id="resultMessage"></p>
+    <button id="nextTurnBtn">Next Turn</button>
+    <button id="accuseBtn">Accuse Fakemaker</button>
   </div>
 
   <!-- Game Over Screen -->
   <div id="gameOverScreen" class="screen">
-    <h2>Spel Voorbij!</h2>
-    <p id="gameOverReason"></p>
-    <button id="restartGameBtn">Nieuw Spel</button>
+    <h2>Game Over!</h2>
+    <p id="gameOverMessage"></p>
+    <button id="newGameBtn">New Game</button>
   </div>
 
   <script>
-    // Helper function to copy text to clipboard
-    function copyToClipboard(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        alert('Copied to clipboard!');
-      }).catch(err => {
-        console.error('Could not copy text: ', err);
+    // Game state
+    const gameState = {
+      gameCode: '',
+      players: [],
+      currentPlayerIndex: 0,
+      questions: [],
+      currentQuestionIndex: 0,
+      gamePhase: 'setup',
+      fakemakerName: '',
+      isHost: false,
+      playerName: '',
+      playerRole: '',
+      gameStarted: false
+    };
+
+    // Role codes
+    const roleCodes = [
+      { code: "1288", role: "Fakemaker" },
+      { code: "7523", role: "Factchecker" },
+      { code: "7358", role: "Factchecker" },
+      { code: "6411", role: "Factchecker" },
+      { code: "9876", role: "Factchecker" },
+      { code: "5432", role: "Factchecker" }
+    ];
+
+    // DOM Elements
+    const screens = document.querySelectorAll('.screen');
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Load questions
+      try {
+        const response = await fetch('questions.json');
+        if (!response.ok) {
+          throw new Error('Failed to load questions');
+        }
+        gameState.questions = await response.json();
+        shuffleQuestions();
+      } catch (error) {
+        console.error('Error loading questions:', error);
+        alert('Failed to load questions. Please refresh the page.');
+      }
+
+      // Set up event listeners
+      document.getElementById('hostGameBtn').addEventListener('click', () => showScreen('hostSetupScreen'));
+      document.getElementById('joinGameBtn').addEventListener('click', () => showScreen('joinGameScreen'));
+      document.getElementById('createGameBtn').addEventListener('click', createGame);
+      document.getElementById('joinGameBtn').addEventListener('click', joinGame);
+      document.getElementById('submitRoleBtn').addEventListener('click', submitRoleCode);
+      document.getElementById('startGameBtn').addEventListener('click', startGame);
+      document.getElementById('startGameAfterRolesBtn').addEventListener('click', startGameAfterRoles);
+      document.getElementById('showQuestionBtn').addEventListener('click', showQuestion);
+      document.getElementById('trueBtn').addEventListener('click', () => submitAnswer(true));
+      document.getElementById('falseBtn').addEventListener('click', () => submitAnswer(false));
+      document.getElementById('nextTurnBtn').addEventListener('click', nextTurn);
+      document.getElementById('accuseBtn').addEventListener('click', accuseFakemaker);
+      document.getElementById('newGameBtn').addEventListener('click', resetGame);
+
+      // Check for game data in URL
+      checkForGameDataInURL();
+    });
+
+    // Show a specific screen
+    function showScreen(screenId) {
+      screens.forEach(screen => {
+        screen.classList.remove('active');
+      });
+      document.getElementById(screenId).classList.add('active');
+    }
+
+    // Generate a random game code
+    function generateGameCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    // Create a new game as host
+    function createGame() {
+      const hostName = document.getElementById('hostNameInput').value.trim();
+      if (!hostName) {
+        alert('Please enter your name');
+        return;
+      }
+
+      gameState.isHost = true;
+      gameState.playerName = hostName;
+      gameState.gameCode = generateGameCode();
+      gameState.players = [{
+        name: hostName,
+        role: '',
+        isHost: true
+      }];
+
+      // Display game code
+      document.getElementById('gameCodeDisplay').textContent = gameState.gameCode;
+      
+      // Generate QR code
+      generateQRCode();
+      
+      // Update player list
+      updatePlayerList();
+      
+      // Save game state to localStorage
+      saveGameState();
+      
+      showScreen('hostGameScreen');
+    }
+
+    // Generate QR code for easy joining
+    function generateQRCode() {
+      const qrCodeContainer = document.getElementById('qrCode');
+      qrCodeContainer.innerHTML = '';
+      
+      // Create the URL with game code
+      const currentUrl = window.location.href.split('?')[0];
+      const gameUrl = `${currentUrl}?code=${gameState.gameCode}`;
+      
+      // Use a simple ASCII QR code since we can't use external libraries
+      qrCodeContainer.textContent = 'Scan to join: ' + gameUrl;
+      
+      // Add copy link button
+      const copyButton = document.createElement('button');
+      copyButton.textContent = 'Copy Join Link';
+      copyButton.className = 'copy-button';
+      copyButton.onclick = () => copyToClipboard(gameUrl);
+      qrCodeContainer.appendChild(document.createElement('br'));
+      qrCodeContainer.appendChild(copyButton);
+    }
+
+    // Join an existing game
+    function joinGame() {
+      const playerName = document.getElementById('playerNameInput').value.trim();
+      const gameCode = document.getElementById('gameCodeInput').value.trim().toUpperCase();
+      
+      if (!playerName || !gameCode) {
+        showError('joinErrorMessage', 'Please enter your name and game code');
+        return;
+      }
+      
+      // Check if game exists in localStorage
+      const savedGame = localStorage.getItem(`truthseekers_game_${gameCode}`);
+      if (!savedGame) {
+        showError('joinErrorMessage', 'Game not found. Please check the code and try again.');
+        return;
+      }
+      
+      // Load game state
+      const parsedGame = JSON.parse(savedGame);
+      
+      // Check if name is already taken
+      if (parsedGame.players.some(p => p.name === playerName)) {
+        showError('joinErrorMessage', 'Name already taken. Please choose another name.');
+        return;
+      }
+      
+      // Add player to game
+      parsedGame.players.push({
+        name: playerName,
+        role: '',
+        isHost: false
+      });
+      
+      // Save updated game state
+      localStorage.setItem(`truthseekers_game_${gameCode}`, JSON.stringify(parsedGame));
+      
+      // Update local game state
+      gameState.gameCode = gameCode;
+      gameState.playerName = playerName;
+      gameState.isHost = false;
+      gameState.players = parsedGame.players;
+      gameState.questions = parsedGame.questions;
+      
+      // Save player info to localStorage
+      localStorage.setItem(`truthseekers_player_${gameCode}_${playerName}`, JSON.stringify({
+        name: playerName,
+        gameCode: gameCode
+      }));
+      
+      // Show lobby screen
+      updateLobbyPlayerList();
+      showScreen('lobbyScreen');
+      
+      // Start polling for game updates
+      startGamePolling();
+    }
+
+    // Show error message
+    function showError(elementId, message) {
+      const errorElement = document.getElementById(elementId);
+      errorElement.textContent = message;
+      errorElement.classList.remove('hidden');
+      
+      // Hide after 3 seconds
+      setTimeout(() => {
+        errorElement.classList.add('hidden');
+      }, 3000);
+    }
+
+    // Update player list in host screen
+    function updatePlayerList() {
+      const playerListElement = document.getElementById('hostPlayerList');
+      playerListElement.innerHTML = '';
+      
+      gameState.players.forEach(player => {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'player-item';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = player.name;
+        
+        const roleSpan = document.createElement('span');
+        roleSpan.className = 'player-role';
+        roleSpan.textContent = player.role || 'No role yet';
+        
+        playerItem.appendChild(nameSpan);
+        playerItem.appendChild(roleSpan);
+        playerListElement.appendChild(playerItem);
+      });
+      
+      // Enable start button if there are players
+      document.getElementById('startGameBtn').disabled = gameState.players.length < 1;
+    }
+
+    // Update player list in lobby screen
+    function updateLobbyPlayerList() {
+      const playerListElement = document.getElementById('lobbyPlayerList');
+      playerListElement.innerHTML = '';
+      
+      gameState.players.forEach(player => {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'player-item';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = player.name;
+        
+        const statusSpan = document.createElement('span');
+        statusSpan.textContent = player.isHost ? '(Host)' : '';
+        
+        playerItem.appendChild(nameSpan);
+        playerItem.appendChild(statusSpan);
+        playerListElement.appendChild(playerItem);
       });
     }
+
+    // Save game state to localStorage
+    function saveGameState() {
+      localStorage.setItem(`truthseekers_game_${gameState.gameCode}`, JSON.stringify(gameState));
+    }
+
+    // Start game (host only)
+    function startGame() {
+      if (!gameState.isHost) return;
+      
+      gameState.gamePhase = 'roleSelection';
+      saveGameState();
+      
+      showScreen('roleCodeScreen');
+    }
+
+    // Submit role code
+    function submitRoleCode() {
+      const roleCode = document.getElementById('roleCodeInput').value.trim();
+      
+      if (!roleCode) {
+        showError('roleErrorMessage', 'Please enter a role code');
+        return;
+      }
+      
+      // Validate role code
+      const roleEntry = roleCodes.find(r => r.code === roleCode);
+      if (!roleEntry) {
+        showError('roleErrorMessage', 'Invalid role code');
+        return;
+      }
+      
+      // Update player role
+      gameState.playerRole = roleEntry.role;
+      
+      // Update player in game state
+      const playerIndex = gameState.players.findIndex(p => p.name === gameState.playerName);
+      if (playerIndex !== -1) {
+        gameState.players[playerIndex].role = roleEntry.role;
+        
+        // If this is the Fakemaker, record their name
+        if (roleEntry.role === 'Fakemaker') {
+          gameState.fakemakerName = gameState.playerName;
+        }
+      }
+      
+      // Save game state
+      saveGameState();
+      
+      // Save player role to localStorage
+      localStorage.setItem(`truthseekers_player_${gameState.gameCode}_${gameState.playerName}_role`, roleEntry.role);
+      
+      // Display role
+      document.getElementById('playerRoleDisplay').textContent = roleEntry.role;
+      
+      // Show role confirmation screen
+      showScreen('roleConfirmationScreen');
+      
+      // If host, check if all players have roles
+      if (gameState.isHost) {
+        checkAllRolesAssigned();
+      }
+    }
+
+    // Check if all players have roles assigned
+    function checkAllRolesAssigned() {
+      if (!gameState.isHost) return;
+      
+      // Check if all players have roles
+      const allRolesAssigned = gameState.players.every(player => player.role !== '');
+      
+      if (allRolesAssigned) {
+        document.getElementById('startGameAfterRolesBtn').classList.remove('hidden');
+      }
+    }
+
+    // Start game after roles assigned (host only)
+    function startGameAfterRoles() {
+      if (!gameState.isHost) return;
+      
+      gameState.gamePhase = 'playing';
+      gameState.gameStarted = true;
+      gameState.currentPlayerIndex = 0;
+      gameState.currentQuestionIndex = 0;
+      
+      saveGameState();
+      
+      startTurn();
+    }
+
+    // Start turn
+    function startTurn() {
+      const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+      
+      // Update current player display
+      document.getElementById('currentPlayerDisplay').textContent = currentPlayer.name;
+      
+      // Show appropriate UI based on whether it's the player's turn
+      if (currentPlayer.name === gameState.playerName) {
+        document.getElementById('yourTurnInfo').classList.remove('hidden');
+        document.getElementById('waitingForTurn').classList.add('hidden');
+        
+        // Show role info
+        document.getElementById('roleInfo').classList.remove('hidden');
+        document.getElementById('roleName').textContent = gameState.playerRole;
+        
+        // Show answer if player is Fakemaker
+        if (gameState.playerRole === 'Fakemaker') {
+          document.getElementById('answerInfo').classList.remove('hidden');
+          const currentQuestion = gameState.questions[gameState.currentQuestionIndex];
+          document.getElementById('correctAnswer').textContent = currentQuestion.answer ? 'Waar' : 'Fout';
+        } else {
+          document.getElementById('answerInfo').classList.add('hidden');
+        }
+      } else {
+        document.getElementById('yourTurnInfo').classList.add('hidden');
+        document.getElementById('waitingForTurn').classList.remove('hidden');
+      }
+      
+      showScreen('gameScreen');
+    }
+
+    // Show question
+    function showQuestion() {
+      const currentQuestion = gameState.questions[gameState.currentQuestionIndex];
+      
+      document.getElementById('questionNumber').textContent = `Vraag ${gameState.currentQuestionIndex + 1}`;
+      document.getElementById('questionContent').textContent = currentQuestion.content;
+      
+      showScreen('questionScreen');
+    }
+
+    // Submit answer
+    function submitAnswer(answer) {
+      const currentQuestion = gameState.questions[gameState.currentQuestionIndex];
+      const isCorrect = answer === currentQuestion.answer;
+      
+      let resultMessage = '';
+      
+      if (isCorrect) {
+        document.getElementById('resultTitle').textContent = 'Correct!';
+        resultMessage = `${gameState.playerName} gaat 1 stap vooruit.`;
+      } else {
+        document.getElementById('resultTitle').textContent = 'Wrong!';
+        const penalty = Math.floor(Math.random() * 5) + 1;
+        resultMessage = `${gameState.playerName} gaat ${penalty} stap(pen) achteruit.`;
+      }
+      
+      document.getElementById('resultMessage').textContent = resultMessage;
+      showScreen('resultScreen');
+      
+      // Save result to game state
+      gameState.lastResult = {
+        player: gameState.playerName,
+        correct: isCorrect,
+        message: resultMessage
+      };
+      
+      saveGameState();
+    }
+
+    // Next turn
+    function nextTurn() {
+      if (gameState.isHost) {
+        gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+        gameState.currentQuestionIndex = (gameState.currentQuestionIndex + 1) % gameState.questions.length;
+        
+        saveGameState();
+      }
+      
+      startTurn();
+    }
+
+    // Accuse someone of being the Fakemaker
+    function accuseFakemaker() {
+      const accusedName = prompt('Who do you think is the Fakemaker? Enter their name:');
+      
+      if (!accusedName || accusedName.trim() === '') {
+        return;
+      }
+      
+      const isCorrect = accusedName.trim() === gameState.fakemakerName;
+      
+      if (isCorrect) {
+        gameState.gamePhase = 'gameOver';
+        gameState.gameOverReason = `The Fakemaker (${gameState.fakemakerName}) has been unmasked! The Factcheckers win!`;
+      } else {
+        gameState.gamePhase = 'playing';
+        gameState.accusationResult = `${accusedName} is not the Fakemaker. The game continues.`;
+      }
+      
+      saveGameState();
+      
+      if (isCorrect) {
+        endGame();
+      } else {
+        alert(gameState.accusationResult);
+        nextTurn();
+      }
+    }
+
+    // End game
+    function endGame() {
+      document.getElementById('gameOverMessage').textContent = gameState.gameOverReason;
+      showScreen('gameOverScreen');
+    }
+
+    // Reset game
+    function resetGame() {
+      // Clear game state
+      localStorage.removeItem(`truthseekers_game_${gameState.gameCode}`);
+      
+      // Reset local game state
+      gameState.gameCode = '';
+      gameState.players = [];
+      gameState.currentPlayerIndex = 0;
+      gameState.currentQuestionIndex = 0;
+      gameState.gamePhase = 'setup';
+      gameState.fakemakerName = '';
+      gameState.isHost = false;
+      gameState.playerName = '';
+      gameState.playerRole = '';
+      gameState.gameStarted = false;
+      
+      // Go back to start screen
+      showScreen('startScreen');
+    }
+
+    // Shuffle questions
+    function shuffleQuestions() {
+      // Simple Fisher-Yates shuffle
+      for (let i = gameState.questions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [gameState.questions[i], gameState.questions[j]] = [gameState.questions[j], gameState.questions[i]];
+      }
+    }
+
+    // Check for game data in URL
+    function checkForGameDataInURL() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const gameCode = urlParams.get('code');
+      
+      if (gameCode) {
+        document.getElementById('gameCodeInput').value = gameCode;
+        showScreen('joinGameScreen');
+      }
+    }
+
+    // Start polling for game updates
+    function startGamePolling() {
+      // Poll every 2 seconds
+      const pollInterval = setInterval(() => {
+        const savedGame = localStorage.getItem(`truthseekers_game_${gameState.gameCode}`);
+        
+        if (!savedGame) {
+          // Game was deleted
+          clearInterval(pollInterval);
+          alert('The game has ended.');
+          resetGame();
+          return;
+        }
+        
+        const parsedGame = JSON.parse(savedGame);
+        
+        // Update player list
+        gameState.players = parsedGame.players;
+        updateLobbyPlayerList();
+        
+        // Check game phase changes
+        if (parsedGame.gamePhase !== gameState.gamePhase) {
+          gameState.gamePhase = parsedGame.gamePhase;
+          
+          if (gameState.gamePhase === 'roleSelection') {
+            showScreen('roleCodeScreen');
+          } else if (gameState.gamePhase === 'playing') {
+            gameState.currentPlayerIndex = parsedGame.currentPlayerIndex;
+            gameState.currentQuestionIndex = parsedGame.currentQuestionIndex;
+            gameState.gameStarted = true;
+            startTurn();
+          } else if (gameState.gamePhase === 'gameOver') {
+            gameState.gameOverReason = parsedGame.gameOverReason;
+            endGame();
+          }
+        }
+        
+        // Check turn changes
+        if (gameState.gamePhase === 'playing' && 
+            (parsedGame.currentPlayerIndex !== gameState.currentPlayerIndex || 
+             parsedGame.currentQuestionIndex !== gameState.currentQuestionIndex)) {
+          
+          gameState.currentPlayerIndex = parsedGame.currentPlayerIndex;
+          gameState.currentQuestionIndex = parsedGame.currentQuestionIndex;
+          startTurn();
+        }
+        
+      }, 2000);
+    }
+
+    // Helper function to copy text to clipboard
+    function copyToClipboard(text) {
+      // Create temporary input
+      const input = document.createElement('input');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      
+      alert('Copied to clipboard!');
+    }
   </script>
-  <script src="skyway-client.js"></script>
 </body>
 </html>
